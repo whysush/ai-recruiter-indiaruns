@@ -1,0 +1,10 @@
+# Ranking step (the TIMED, offline path) needs only numpy.
+numpy>=1.24,<3.0
+
+# Pre-computation only (scripts/precompute_embeddings.py): downloads the local
+# sentence-embedding model once and embeds the pool. NOT imported at rank time.
+sentence-transformers>=2.2,<4.0
+# torch is pulled in by sentence-transformers (CPU build is sufficient).
+
+# Tests
+pytest>=7.0

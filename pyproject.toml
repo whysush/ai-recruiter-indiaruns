@@ -1,0 +1,22 @@
+[project]
+name = "airecruiter"
+version = "1.0.0"
+description = "Ranked candidate shortlisting — structured-evidence scorer with a local semantic component"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24,<3.0"]
+
+[project.optional-dependencies]
+# Needed only for the one-time embedding pre-computation, never at rank time.
+precompute = ["sentence-transformers>=2.2,<6.0"]
+test = ["pytest>=7.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["airecruiter"]

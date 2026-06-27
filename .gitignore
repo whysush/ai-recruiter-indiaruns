@@ -1,0 +1,23 @@
+# Dataset (large; provided in the hackathon bundle, not committed)
+data/candidates.jsonl
+data/candidates.jsonl.gz
+data/*.json
+data/sample_candidates.json
+
+# Pre-computed embedding artifacts are large; provide via release/LFS or regenerate
+# with scripts/precompute_embeddings.py. Keep a .gitkeep so the dir exists.
+artifacts/*.npy
+artifacts/*.txt
+!artifacts/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Outputs
+submission.csv
+*.out
