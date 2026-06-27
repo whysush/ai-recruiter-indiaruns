@@ -1,0 +1,78 @@
+# Redrob Hackathon — Submission Metadata
+# Mirror of the portal metadata. Fill in the team-identity fields before submitting.
+
+team_name: "TODO-your-team-name"
+
+primary_contact:
+  name: "TODO Full Name"
+  email: "sudhanshyelishetty@gmail.com"
+  phone: "+91-XXXXXXXXXX"
+
+team_members:
+  - name: "TODO Member 1"
+    email: "sudhanshyelishetty@gmail.com"
+    role: "ML Engineer"
+
+# ============================================================================
+# Code and reproducibility
+# ============================================================================
+github_repo: "https://github.com/TODO_USERNAME/airecruiter"
+sandbox_link: "https://huggingface.co/spaces/TODO_USERNAME/airecruiter"  # small-sample runner
+
+reproduce_command: "python scripts/run_submission.py --candidates ./data/candidates.jsonl --out ./submission.csv"
+
+# ============================================================================
+# Compute environment
+# ============================================================================
+compute:
+  platform: "Local Linux box"
+  cpu_cores: 8
+  ram_gb: 16
+  python_version: "3.10"
+  os: "Ubuntu 22.04 LTS"
+  uses_gpu_for_inference: false           # CPU only at rank time
+  has_network_during_ranking: false       # numpy-only ranking step, no API calls
+  pre_computation_required: true           # embeddings are precomputed and cached
+  pre_computation_time_minutes: 10         # one-time, approximate (CPU)
+
+# ============================================================================
+# AI tools declaration (transparency only; not penalized)
+# ============================================================================
+ai_tools_used:
+  - "Claude"
+
+ai_usage_summary: |
+  Used Claude (Claude Code) as a pair-engineer for architecture discussion, code
+  scaffolding, and code review. All design decisions, the scoring model, the
+  honeypot audit rules, and the JD decomposition were human-directed and reviewed.
+  No candidate data was sent to any hosted LLM, and no LLM is called anywhere in
+  the scored ranking path.
+
+# ============================================================================
+# Approach summary
+# ============================================================================
+methodology_summary: |
+  Structured-evidence ranker with one genuine semantic component, unified so the
+  demo IS the submission pipeline. final_score = (0.40*semantic_fit +
+  0.60*evidence_fit) * behavioral_envelope * location_shaper - honeypot_penalty.
+  semantic_fit is cosine similarity between a JD-derived ideal-profile text and each
+  candidate's combined text, using a local sentence-transformers model precomputed
+  and cached to a numpy artifact (the timed ranking step is numpy-only, CPU,
+  no-network). evidence_fit combines title relevance, duration-weighted career
+  relevance, and skill evidence validated by measured skill_assessment_scores — the
+  data shows listed skills are near-uniform noise, so we trust assessments and
+  career descriptions, not keyword lists. A 9-rule honeypot/consistency audit sinks
+  impossible profiles, keyword stuffers, CV/speech-without-NLP, consulting-only
+  careers, and aspirational "transitioning-into-ML" false positives. Behavioral
+  signals act as a bounded [0.5,1.2] availability multiplier, never the main driver.
+  Reasoning is generated deterministically from each candidate's own numbers.
+
+# ============================================================================
+# Declarations
+# ============================================================================
+declarations:
+  read_submission_spec: true
+  code_is_original_work: true
+  no_collusion: true
+  honeypot_check_done: true
+  reproduction_tested: true
