@@ -94,11 +94,15 @@ def main() -> int:
     anchor = compute_anchor(records)
     print(f"[rank] recency anchor = {anchor.isoformat()}", flush=True)
 
-    rows = score.score_pool(records, job, semantic_raw, anchor)
+    rows = score.score_pool_parallel(records, job, semantic_raw, anchor)
     top = score.rank_pool(rows, top_k=args.top_k)
     top = score.rescale_scores(top)
 
+    # The parallel scorer drops the raw record to avoid pickling; re-attach it for
+    # the top-K only so reasoning can quote real fields/assessments.
+    by_id = {r["candidate_id"]: r for r in records}
     for r in top:
+        r.setdefault("_rec", by_id[r["candidate_id"]])
         r["reasoning"] = reasoning.build_reasoning(r)
 
     out_path = Path(args.out)

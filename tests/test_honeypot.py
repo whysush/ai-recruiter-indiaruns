@@ -144,3 +144,15 @@ def test_stuffer_audit_flags_aspirational_and_unsupported():
     assert pen > 0.2
     joined = " ".join(flags)
     assert "aspirational" in joined or "no career role" in joined
+
+
+def test_parallel_scoring_matches_single_process():
+    import numpy as np
+    recs = [GENUINE, STUFFER, HONEYPOT]
+    sem = np.array([0.5, 0.5, 0.5], dtype="float32")
+    a = score.score_pool(recs, JOB, sem, ANCHOR)
+    b = score.score_pool_parallel(recs, JOB, sem, ANCHOR, n_workers=2)
+    am = {r["candidate_id"]: r["final_score"] for r in a}
+    bm = {r["candidate_id"]: r["final_score"] for r in b}
+    assert am.keys() == bm.keys()
+    assert all(abs(am[k] - bm[k]) < 1e-12 for k in am)

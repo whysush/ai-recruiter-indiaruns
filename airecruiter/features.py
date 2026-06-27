@@ -43,10 +43,40 @@ def all_signal_text(rec: dict) -> str:
     return " \n ".join(p for p in parts if p)
 
 
+class Blob:
+    """Per-candidate lowercased text, built ONCE and reused across every feature and
+    the honeypot audit. Lowercasing once here (instead of inside every match) is the
+    single biggest scoring speedup at 100K scale."""
+
+    __slots__ = ("summary_l", "career_l", "titles_l", "all_l", "roles_l",
+                 "skill_names_l", "companies_l")
+
+    def __init__(self, rec: dict):
+        p = rec.get("profile", {})
+        self.summary_l = (p.get("summary", "") or "").lower()
+        self.titles_l = titles_text(rec).lower()
+        self.career_l = career_text(rec).lower()
+        skills = rec.get("skills", [])
+        self.skill_names_l = [(s.get("name", "") or "").lower() for s in skills]
+        self.all_l = " \n ".join(
+            [p.get("headline", "").lower(), self.summary_l,
+             p.get("current_title", "").lower(), self.career_l]
+            + self.skill_names_l
+        )
+        self.roles_l = [
+            (max(0, j.get("duration_months", 0)),
+             ((j.get("title", "") + ". " + j.get("description", "")).lower()))
+            for j in rec.get("career_history", [])
+        ]
+        comps = [j.get("company", "").lower() for j in rec.get("career_history", [])]
+        comps.append(p.get("current_company", "").lower())
+        self.companies_l = [c for c in comps if c]
+
+
 # --- concept coverage -----------------------------------------------------
 
-def concept_coverage(text: str, concept_groups: dict) -> float:
-    """Fraction of concept GROUPS that have at least one surface-form hit.
+def concept_coverage_low(low: str, concept_groups: dict) -> float:
+    """Fraction of concept GROUPS with at least one hit in already-lowercased text.
 
     Grouping prevents a candidate from scoring high just because one group (say
     'embeddings') has many synonyms — each conceptual requirement counts once.
@@ -55,9 +85,14 @@ def concept_coverage(text: str, concept_groups: dict) -> float:
         return 0.0
     covered = 0
     for _name, terms in concept_groups.items():
-        if jd.any_hit(text, terms):
+        if jd.match_any(low, terms):
             covered += 1
     return covered / len(concept_groups)
+
+
+def concept_coverage(text: str, concept_groups: dict) -> float:
+    """Convenience wrapper that lowercases first (non-hot callers / tests)."""
+    return concept_coverage_low(text.lower() if text else "", concept_groups)
 
 
 # --- skill evidence, validated by measured assessment scores --------------
@@ -68,17 +103,11 @@ def relevant_assessment(rec: dict, job: jd.JobSpec) -> tuple[float, int, list[st
     Returns (mean_score_0_1, n_relevant_assessed, named_examples). This is the
     strongest anti-honeypot signal: a measured number on a role-relevant skill.
     """
-    relevant_terms: list[str] = []
-    for terms in job.must_have_concepts.values():
-        relevant_terms += terms
-    for terms in job.eval_concepts.values():
-        relevant_terms += terms
-
     scores = rec.get("redrob_signals", {}).get("skill_assessment_scores", {}) or {}
     vals = []
     named = []
     for skill_name, sc in scores.items():
-        if jd.any_hit(skill_name, relevant_terms):
+        if jd.match_any(skill_name.lower(), jd.CORE_PLUS_EVAL_FLAT):
             vals.append(max(0.0, min(100.0, float(sc))) / 100.0)
             named.append((skill_name, float(sc)))
     if not vals:
@@ -88,21 +117,16 @@ def relevant_assessment(rec: dict, job: jd.JobSpec) -> tuple[float, int, list[st
     return sum(vals) / len(vals), len(vals), examples
 
 
-def skill_evidence(rec: dict, job: jd.JobSpec) -> float:
+def skill_evidence(rec: dict, job: jd.JobSpec, blob: Blob) -> float:
     """Combine relevant-skill proficiency/endorsement/duration with assessment.
 
     A self-claimed 'advanced' skill is only believed to the extent the platform
     assessment backs it. With no relevant assessment, the claim is heavily
     discounted (claims are cheap; the data showed skills are random noise).
     """
-    relevant_terms: list[str] = []
-    for terms in job.must_have_concepts.values():
-        relevant_terms += terms
-
     claim = 0.0
-    for s in rec.get("skills", []):
-        name = s.get("name", "")
-        if not jd.any_hit(name, relevant_terms):
+    for s, name_l in zip(rec.get("skills", []), blob.skill_names_l):
+        if not jd.match_any(name_l, jd.MUSTHAVE_FLAT):
             continue
         prof = PROFICIENCY_WEIGHT.get(s.get("proficiency", ""), 0.4)
         endo = math.log1p(s.get("endorsements", 0)) / math.log1p(50)  # 50 endo ~ 1.0
@@ -140,9 +164,9 @@ def title_relevance(rec: dict) -> float:
     hist = [j.get("title", "").lower() for j in rec.get("career_history", [])]
 
     def score_title(t: str) -> float:
-        if jd.any_hit(t, STRONG_TITLE):
+        if jd.match_any(t, STRONG_TITLE):
             return 1.0
-        if jd.any_hit(t, ADJACENT_TITLE):
+        if jd.match_any(t, ADJACENT_TITLE):
             return 0.55
         return 0.0
 
@@ -154,29 +178,25 @@ def title_relevance(rec: dict) -> float:
 
 # --- career relevance: duration-weighted, judged on title+description ------
 
-def career_relevance(rec: dict, job: jd.JobSpec) -> float:
+def career_relevance(blob: Blob) -> float:
     """Fraction of career *months* spent in genuinely relevant roles.
 
-    Each role is judged by concept coverage over its title+description, not by
-    title string alone — so 'built a recommendation system' counts even from an
-    unglamorous title (the JD's plain-language Tier-5 case).
+    Each role is judged by how many distinct role concepts its title+description
+    demonstrate (one combined-regex pass), not by title string alone — so 'built a
+    recommendation system' counts even from an unglamorous title (the JD's
+    plain-language Tier-5 case).
     """
-    hist = rec.get("career_history", [])
-    if not hist:
+    if not blob.roles_l:
         return 0.0
     total = 0.0
     relevant = 0.0
-    core_groups = {**job.must_have_concepts, **job.eval_concepts}
-    for j_ in hist:
-        months = max(0, j_.get("duration_months", 0))
+    for months, text_l in blob.roles_l:
         if months == 0:
             continue
-        text = (j_.get("title", "") + ". " + j_.get("description", ""))
-        cov = concept_coverage(text, core_groups)
-        # A role is "relevant" proportional to how many distinct role concepts it
-        # demonstrates; cap the per-role credit so one buzzword-rich role doesn't
-        # dominate, but reward substantive ones.
-        relevant += months * min(1.0, cov * 2.5)
+        hits = jd.match_count(text_l, jd.CORE_PLUS_EVAL_FLAT)
+        # Credit grows with distinct concepts demonstrated, saturating at ~3 so a
+        # single buzzword doesn't fully count and one rich role doesn't dominate.
+        relevant += months * min(1.0, hits / 3.0)
         total += months
     if total == 0:
         return 0.0

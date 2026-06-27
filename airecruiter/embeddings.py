@@ -23,23 +23,48 @@ MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 EMB_DIM = 384
 
 
-def load_model(model_name: str = MODEL_NAME):
-    """Load the local sentence-transformer. Raises if unavailable (caller falls back)."""
+def load_model(model_name: str = MODEL_NAME, max_seq_length: int = 128):
+    """Load the local sentence-transformer. Raises if unavailable (caller falls back).
+
+    max_seq_length is capped at 128 tokens: the discriminative signal (summary,
+    headline, current/recent titles) sits at the start of each candidate's text, so
+    128 tokens keep the semantic quality while roughly halving precompute time.
+    """
     from sentence_transformers import SentenceTransformer  # lazy: not needed at rank time
 
-    return SentenceTransformer(model_name, device="cpu")
+    m = SentenceTransformer(model_name, device="cpu")
+    if max_seq_length:
+        m.max_seq_length = max_seq_length
+    return m
 
 
-def embed_texts(model, texts: list[str], batch_size: int = 256) -> np.ndarray:
-    """Embed and L2-normalize a list of texts -> float32 [N, D]."""
-    vecs = model.encode(
-        texts,
-        batch_size=batch_size,
-        convert_to_numpy=True,
-        normalize_embeddings=True,
-        show_progress_bar=True,
-    )
-    return vecs.astype(np.float32)
+def embed_texts(model, texts: list[str], batch_size: int = 128,
+                log_every: int = 20000) -> np.ndarray:
+    """Embed and L2-normalize a list of texts -> float32 [N, D].
+
+    Manually chunked so we can print real progress (sentence-transformers' own bar
+    is suppressed when stdout isn't a TTY)."""
+    import time as _t
+
+    n = len(texts)
+    out = np.empty((n, EMB_DIM), dtype=np.float32)
+    t0 = _t.time()
+    done = 0
+    next_log = log_every
+    for start in range(0, n, batch_size):
+        chunk = texts[start:start + batch_size]
+        vecs = model.encode(
+            chunk, batch_size=batch_size, convert_to_numpy=True,
+            normalize_embeddings=True, show_progress_bar=False,
+        )
+        out[start:start + len(chunk)] = vecs.astype(np.float32)
+        done += len(chunk)
+        if done >= next_log or done == n:
+            rate = done / max(1e-9, (_t.time() - t0))
+            eta = (n - done) / max(1e-9, rate)
+            print(f"[precompute]   {done}/{n} embedded  ({rate:.0f}/s, ETA {eta:.0f}s)", flush=True)
+            next_log = done + log_every
+    return out
 
 
 def embed_query(model, text: str) -> np.ndarray:

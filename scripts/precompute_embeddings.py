@@ -33,12 +33,13 @@ def main() -> int:
     ap.add_argument("--cache", default=str(Path(__file__).resolve().parents[1] / "artifacts"))
     ap.add_argument("--model", default=embeddings.MODEL_NAME)
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--batch-size", type=int, default=256)
+    ap.add_argument("--batch-size", type=int, default=128)
+    ap.add_argument("--max-seq-length", type=int, default=128)
     args = ap.parse_args()
 
     t0 = time.time()
-    print(f"[precompute] loading model {args.model} (CPU) ...", flush=True)
-    model = embeddings.load_model(args.model)
+    print(f"[precompute] loading model {args.model} (CPU, seq<={args.max_seq_length}) ...", flush=True)
+    model = embeddings.load_model(args.model, max_seq_length=args.max_seq_length)
 
     print("[precompute] loading candidates ...", flush=True)
     records = dataio.load_candidates(args.candidates)

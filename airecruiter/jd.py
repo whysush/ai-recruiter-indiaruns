@@ -103,6 +103,21 @@ PREFERRED_LOCATIONS = [
 ]
 
 
+# Flattened vocabularies (module constants so id()-keyed regex caches are stable).
+# Used on the hot path to replace many per-group searches with one combined search.
+MUSTHAVE_FLAT: list[str] = [t for g in CORE_ROLE_CONCEPTS.values() for t in g] + \
+    [t for g in ML_PRODUCTION_CONCEPTS.values() for t in g]
+EVAL_FLAT: list[str] = [t for g in EVAL_CONCEPTS.values() for t in g]
+CORE_PLUS_EVAL_FLAT: list[str] = MUSTHAVE_FLAT + EVAL_FLAT
+NLP_IR_FLAT: list[str] = (
+    ML_PRODUCTION_CONCEPTS["nlp"]
+    + CORE_ROLE_CONCEPTS["retrieval"]
+    + CORE_ROLE_CONCEPTS["search"]
+    + CORE_ROLE_CONCEPTS["ranking"]
+)
+DEEP_ML_FLAT: list[str] = ML_PRODUCTION_CONCEPTS["ml_engineering"] + ML_PRODUCTION_CONCEPTS["deep_learning"]
+
+
 @dataclass
 class JobSpec:
     """Decomposed, machine-usable view of the target JD."""
@@ -178,42 +193,62 @@ def build_job_spec(jd_text: str) -> JobSpec:
 
 # --- Concept matching helpers ---------------------------------------------
 
-_COMPILE_CACHE: dict[int, list[re.Pattern]] = {}
+def _term_regex(t: str) -> str:
+    """Regex fragment for one (lowercased) term: word-boundaries for plain tokens,
+    escaped substring for phrases / tokens containing punctuation."""
+    if " " in t or any(c in t for c in "@-&./+"):
+        return re.escape(t)
+    return rf"\b{re.escape(t)}\b"
 
 
-def _compile(terms: list[str]) -> list[re.Pattern]:
-    """Compile a term list to regex patterns, memoized by list identity.
+# Memoized caches keyed by term-list identity. The vocabularies are module-level
+# constants, so each is compiled exactly once for the whole 100K pool. Patterns are
+# built over LOWERCASED terms and matched against text the caller has already
+# lowercased — dropping re.IGNORECASE roughly halves match cost at this scale.
+_ANY_CACHE: dict[int, re.Pattern] = {}
+_COUNT_CACHE: dict[int, list[re.Pattern]] = {}
 
-    The term lists are module-level constants, so caching on id() compiles each
-    vocabulary exactly once instead of millions of times across the 100K pool.
-    """
+
+def _combined(terms: list[str]) -> re.Pattern:
     key = id(terms)
-    cached = _COMPILE_CACHE.get(key)
-    if cached is not None:
-        return cached
-    pats = []
-    for t in terms:
-        # Phrase match, case-insensitive. Use boundaries for short alnum tokens
-        # to avoid 'map@' style false hits; phrases match as substrings.
-        if " " in t or any(c in t for c in "@-&./"):
-            pats.append(re.compile(re.escape(t), re.IGNORECASE))
-        else:
-            pats.append(re.compile(rf"\b{re.escape(t)}\b", re.IGNORECASE))
-    _COMPILE_CACHE[key] = pats
-    return pats
+    cached = _ANY_CACHE.get(key)
+    if cached is None:
+        cached = re.compile("|".join(_term_regex(t.lower()) for t in terms))
+        _ANY_CACHE[key] = cached
+    return cached
+
+
+def _per_term(terms: list[str]) -> list[re.Pattern]:
+    key = id(terms)
+    cached = _COUNT_CACHE.get(key)
+    if cached is None:
+        cached = [re.compile(_term_regex(t.lower())) for t in terms]
+        _COUNT_CACHE[key] = cached
+    return cached
+
+
+# --- low-level helpers: caller guarantees `low` is already lowercased ------
+
+def match_any(low: str, terms: list[str]) -> bool:
+    """True if any term appears in the already-lowercased `low` (hot path)."""
+    if not low:
+        return False
+    return _combined(terms).search(low) is not None
+
+
+def match_count(low: str, terms: list[str]) -> int:
+    """Distinct terms present in already-lowercased `low`. Short-circuits to 0 (the
+    common case over a noisy pool) on the combined regex before per-term checks."""
+    if not low or not _combined(terms).search(low):
+        return 0
+    return sum(1 for pat in _per_term(terms) if pat.search(low))
+
+
+# --- convenience wrappers for non-hot callers (tests, reasoning) -----------
+
+def any_hit(text: str, terms: list[str]) -> bool:
+    return match_any(text.lower() if text else "", terms)
 
 
 def count_hits(text: str, terms: list[str]) -> int:
-    """Number of distinct terms from `terms` that appear in text."""
-    if not text:
-        return 0
-    low = text
-    hits = 0
-    for pat in _compile(terms):
-        if pat.search(low):
-            hits += 1
-    return hits
-
-
-def any_hit(text: str, terms: list[str]) -> bool:
-    return count_hits(text, terms) > 0
+    return match_count(text.lower() if text else "", terms)

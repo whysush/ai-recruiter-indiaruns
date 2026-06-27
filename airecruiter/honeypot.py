@@ -18,24 +18,26 @@ from __future__ import annotations
 from datetime import date
 
 from . import jd
-from .features import all_signal_text, career_text, titles_text
+from .features import Blob
 
 
 def _years(rec: dict) -> float:
     return float(rec.get("profile", {}).get("years_of_experience", 0.0))
 
 
-def audit(rec: dict) -> tuple[float, list[str]]:
+def audit(rec: dict, blob: Blob | None = None) -> tuple[float, list[str]]:
+    if blob is None:
+        blob = Blob(rec)
     flags: list[str] = []
     penalty = 0.0
     p = rec.get("profile", {})
     skills = rec.get("skills", [])
     sig = rec.get("redrob_signals", {})
     yoe = _years(rec)
-    summary = p.get("summary", "") or ""
-    career = career_text(rec)
-    titles = titles_text(rec)
-    all_text = all_signal_text(rec)
+    summary_l = blob.summary_l
+    career_l = blob.career_l
+    titles_l = blob.titles_l
+    all_l = blob.all_l
 
     # 1) IMPOSSIBLE skill duration: claims using a skill longer than the whole
     #    career (with a small grace). A hallmark honeypot construction.
@@ -87,7 +89,7 @@ def audit(rec: dict) -> tuple[float, list[str]]:
 
     # 5) ASPIRATIONAL summary: describes a future identity, not demonstrated work.
     #    This is the aspirational false-positive ("transitioning into ML").
-    asp_hits = jd.count_hits(summary, jd.ASPIRATIONAL_PHRASES)
+    asp_hits = jd.match_count(summary_l, jd.ASPIRATIONAL_PHRASES)
     if asp_hits >= 2:
         penalty += 0.18
         flags.append("summary is aspirational ('transitioning/learning'), not demonstrated")
@@ -96,40 +98,31 @@ def audit(rec: dict) -> tuple[float, list[str]]:
 
     # 6) AI CLAIM WITHOUT CAREER EVIDENCE: candidate lists core AI/ML skills but
     #    NO role in career history demonstrates them. The keyword-stuffer.
-    relevant_terms: list[str] = []
-    for terms in jd.CORE_ROLE_CONCEPTS.values():
-        relevant_terms += terms
-    for terms in jd.ML_PRODUCTION_CONCEPTS.values():
-        relevant_terms += terms
-    claims_ai_skill = any(jd.any_hit(s.get("name", ""), relevant_terms) for s in skills)
-    career_shows_ai = jd.any_hit(career, relevant_terms) or jd.any_hit(titles, relevant_terms)
+    claims_ai_skill = any(jd.match_any(n, jd.MUSTHAVE_FLAT) for n in blob.skill_names_l)
+    career_shows_ai = jd.match_any(career_l, jd.MUSTHAVE_FLAT) or jd.match_any(titles_l, jd.MUSTHAVE_FLAT)
     assessed = sig.get("skill_assessment_scores", {}) or {}
-    has_relevant_assessment = any(jd.any_hit(k, relevant_terms) for k in assessed)
+    has_relevant_assessment = any(jd.match_any(k.lower(), jd.MUSTHAVE_FLAT) for k in assessed)
     if claims_ai_skill and not career_shows_ai and not has_relevant_assessment:
         penalty += 0.22
         flags.append("AI skills listed but no career role or assessment supports them")
 
     # 7) CV/SPEECH/ROBOTICS primary without NLP/IR — JD explicitly down-ranks.
-    cv_hits = jd.count_hits(all_text, jd.CV_SPEECH_ROBOTICS)
-    nlp_ir_terms = jd.ML_PRODUCTION_CONCEPTS["nlp"] + jd.CORE_ROLE_CONCEPTS["retrieval"] + jd.CORE_ROLE_CONCEPTS["search"] + jd.CORE_ROLE_CONCEPTS["ranking"]
-    nlp_hits = jd.count_hits(all_text, nlp_ir_terms)
+    cv_hits = jd.match_count(all_l, jd.CV_SPEECH_ROBOTICS)
+    nlp_hits = jd.match_count(all_l, jd.NLP_IR_FLAT)
     if cv_hits >= 2 and cv_hits > nlp_hits:
         penalty += 0.12
         flags.append("primary expertise looks CV/speech/robotics, not NLP/IR")
 
     # 8) CONSULTING-ONLY career (JD: not a fit unless prior product experience).
-    companies = [j.get("company", "").lower() for j in rec.get("career_history", [])]
-    companies.append(p.get("current_company", "").lower())
-    companies = [c for c in companies if c]
-    if companies:
-        consult = sum(1 for c in companies if jd.any_hit(c, jd.CONSULTING_FIRMS))
-        if consult == len(companies):
+    if blob.companies_l:
+        consult = sum(1 for c in blob.companies_l if jd.match_any(c, jd.CONSULTING_FIRMS))
+        if consult == len(blob.companies_l):
             penalty += 0.12
             flags.append("entire career at services/consulting firms")
 
     # 9) FRAMEWORK-ONLY recent AI (LangChain/OpenAI wrappers) with no pre-LLM ML.
-    fw_hits = jd.count_hits(all_text, jd.FRAMEWORK_ENTHUSIAST)
-    deep_ml = jd.count_hits(all_text, jd.ML_PRODUCTION_CONCEPTS["ml_engineering"] + jd.ML_PRODUCTION_CONCEPTS["deep_learning"])
+    fw_hits = jd.match_count(all_l, jd.FRAMEWORK_ENTHUSIAST)
+    deep_ml = jd.match_count(all_l, jd.DEEP_ML_FLAT)
     if fw_hits >= 1 and deep_ml == 0:
         penalty += 0.08
         flags.append("AI experience looks framework-wrapper only (no production ML)")
