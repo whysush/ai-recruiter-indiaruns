@@ -19,7 +19,9 @@ team_members:
 github_repo: "https://github.com/TODO_USERNAME/airecruiter"
 sandbox_link: "https://huggingface.co/spaces/TODO_USERNAME/airecruiter"  # small-sample runner
 
-reproduce_command: "python scripts/run_submission.py --candidates ./data/candidates.jsonl --out ./submission.csv"
+reproduce_command: "python scripts/run_submission.py --candidates data/candidates.jsonl --out submission.csv"
+# One-time precompute (exempt from the 5-min ranking budget):
+#   python scripts/precompute_embeddings.py --candidates data/candidates.jsonl --cache artifacts/
 
 # ============================================================================
 # Compute environment
@@ -33,7 +35,7 @@ compute:
   uses_gpu_for_inference: false           # CPU only at rank time
   has_network_during_ranking: false       # numpy-only ranking step, no API calls
   pre_computation_required: true           # embeddings are precomputed and cached
-  pre_computation_time_minutes: 10         # one-time, approximate (CPU)
+  pre_computation_time_minutes: 20         # one-time, approximate (CPU, 100K @ all-MiniLM-L6-v2)
 
 # ============================================================================
 # AI tools declaration (transparency only; not penalized)
