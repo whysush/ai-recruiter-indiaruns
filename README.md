@@ -50,12 +50,16 @@ AI/ML"* and whose skill list is stuffed with `NLP (advanced)`, `Fine-tuning LLMs
 (advanced)`, `Speech Recognition`, `TTS`. Token-dense → keyword search ranks it
 near the top.
 
-**After (this system):** it is **down-ranked** because
-- `evidence_fit` is low: title is *Backend Engineer*, career descriptions are data
-  pipelines, and there are **no relevant assessment scores** to back the AI claims;
-- the **honeypot audit** fires three flags: *aspirational summary*, *CV/speech
-  expertise without NLP/IR* (an explicit JD negative), and *AI skills with no
-  supporting role or assessment*.
+**After (this system):** it lands at **rank 57,835 / 100,000** — nowhere near the
+shortlist — because
+- `career_relevance` is **0.11**: its role descriptions are data pipelines, not ML;
+- the **honeypot audit** applies a **0.30 penalty**, flagging the *aspirational
+  summary* and *CV/speech expertise without NLP/IR* (an explicit JD negative).
+
+Concretely, in our full run the **top-100 are entirely genuine AI/ML titles**
+(Recommendation/Applied-ML/NLP/Search/AI engineers, Data Scientists) and **zero**
+profiles in the top-100 trip the honeypot audit — a 0% honeypot rate against the
+challenge's 10% disqualification threshold.
 
 Meanwhile a *plain-language* candidate whose description says *"built a
 recommendation and search ranking system with embeddings and FAISS at a product
@@ -165,7 +169,11 @@ learning-to-rank training (no labels are provided); no online/A-B components.
 
 ---
 
-## Runtime
-- Structured feature pass over the full 100K pool: a few seconds on CPU.
-- Ranking step end-to-end (with cached embeddings): well under the 5-minute budget.
-- One-time embedding precompute: minutes on CPU (declared, cached).
+## Runtime (measured, 12-core CPU box, system Python, numpy only)
+- **Ranking step end-to-end: ~61 s** for the full 100,000-candidate pool
+  (≈4 s load + ≈55 s parallel structured scoring + embedding cosine) — comfortably
+  inside the 5-minute budget, no network, no torch.
+- One-time embedding precompute: ~20 min on CPU for 100K (declared, cached to a
+  77 MB float16 artifact; exempt from the 5-minute ranking budget per the spec).
+- The structured scorer is split across CPU cores via a deterministic fork-based
+  pool; the result is bit-identical to single-process scoring (regression-tested).

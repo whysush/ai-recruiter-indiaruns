@@ -37,11 +37,11 @@ def _lead_phrase(row: dict) -> str:
     """
     fused = row.get("fused_fit", 0.0)
     pen = row.get("honeypot_penalty", 0.0)
-    if fused >= 0.62 and pen < 0.1:
+    if fused >= 0.80 and pen < 0.1:
         return "Strong fit"
-    if fused >= 0.48:
+    if fused >= 0.62:
         return "Good fit"
-    if fused >= 0.34:
+    if fused >= 0.45:
         return "Plausible fit"
     return "Borderline fit, likely near/below the cutoff"
 

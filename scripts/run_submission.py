@@ -116,6 +116,23 @@ def main() -> int:
     if len(top) < args.top_k:
         print(f"[rank] WARNING: only {len(top)} candidates available (< {args.top_k}). "
               f"No ids were fabricated.", flush=True)
+
+    # Self-validate as the last step using the official validator (no fabrication,
+    # correct format, non-increasing scores, tie-break). Fail loudly if violated.
+    # The official validator requires EXACTLY 100 rows, so only enforce it for the
+    # standard submission; a non-standard --top-k (debug) just skips the check.
+    if args.top_k != 100:
+        print(f"[rank] (skipping official validator: non-standard top_k={args.top_k})", flush=True)
+        return 0
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from validate_submission import validate_submission
+    errors = validate_submission(str(out_path))
+    if errors:
+        print("[rank] VALIDATION FAILED:", flush=True)
+        for e in errors:
+            print(f"   - {e}", flush=True)
+        return 1
+    print("[rank] official validator: Submission is valid.", flush=True)
     return 0
 
 

@@ -12,11 +12,12 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from airecruiter import dataio, embeddings, score
 from airecruiter.jd import build_job_spec
 from airecruiter.honeypot import audit
-from scripts.run_submission import align_semantic, compute_anchor  # type: ignore
+from run_submission import align_semantic, compute_anchor  # type: ignore
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -33,8 +34,12 @@ def main():
     cache = embeddings.load_cache(args.cache)
     sem = align_semantic(records, cache)
     anchor = compute_anchor(records)
-    rows = score.score_pool(records, job, sem, anchor)
+    rows = score.score_pool_parallel(records, job, sem, anchor)
+    # parallel drops _rec; re-attach for the inspected rows
+    by_id = {r["candidate_id"]: r for r in records}
     top = score.rank_pool(rows, top_k=100)
+    for r in top:
+        r.setdefault("_rec", by_id[r["candidate_id"]])
     top = score.rescale_scores(top)
 
     print(f"\n=== TOP {args.n} ===")

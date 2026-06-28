@@ -30,24 +30,30 @@ from . import jd
 W_SEMANTIC = 0.40
 W_EVIDENCE = 0.60
 
-# Evidence sub-weights.
-W_TITLE = 0.32
-W_CAREER = 0.30
-W_SKILL = 0.24
-W_SENIOR = 0.14
-# Small additive bonuses for eval-maturity and nice-to-haves (capped).
-EVAL_BONUS = 0.10
-NICE_BONUS = 0.06
+# Evidence sub-weights — sum to 1.0 (no saturating clamp). Skill evidence (driven
+# by MEASURED assessments) and eval-maturity carry real weight so that within the
+# genuinely-strong pool the better-evidenced candidates separate, rather than every
+# strong title flattening to a perfect score.
+W_TITLE = 0.22
+W_CAREER = 0.24
+W_SKILL = 0.28
+W_SENIOR = 0.12
+W_EVAL = 0.10
+W_NICE = 0.04
 
 
-def _percentile_scale(values: np.ndarray, lo_pct=5, hi_pct=95) -> np.ndarray:
-    """Robust min-max to [0,1] using percentile clipping (outlier-safe)."""
-    lo = np.percentile(values, lo_pct)
-    hi = np.percentile(values, hi_pct)
+def _semantic_scale(values: np.ndarray) -> np.ndarray:
+    """Non-saturating min-max to [0,1].
+
+    Floor at the 1st percentile (so a single low outlier doesn't compress the
+    range) but use the true MAX as the ceiling, so the strongest candidates keep a
+    spread instead of all clipping to 1.0 — important because the top-100 sit in the
+    extreme upper tail and we still need them ordered by genuine similarity."""
+    lo = float(np.percentile(values, 1))
+    hi = float(values.max())
     if hi <= lo:
         return np.zeros_like(values)
-    scaled = (values - lo) / (hi - lo)
-    return np.clip(scaled, 0.0, 1.0)
+    return np.clip((values - lo) / (hi - lo), 0.0, 1.0)
 
 
 def evidence_fit(rec: dict, job: jd.JobSpec, blob: F.Blob) -> dict:
@@ -60,9 +66,8 @@ def evidence_fit(rec: dict, job: jd.JobSpec, blob: F.Blob) -> dict:
     eval_cov = F.concept_coverage_low(blob.all_l, job.eval_concepts)
     nice_cov = F.concept_coverage_low(blob.all_l, job.nice_to_have_concepts)
 
-    base = W_TITLE * title + W_CAREER * career + W_SKILL * skill + W_SENIOR * senior
-    bonus = EVAL_BONUS * eval_cov + NICE_BONUS * nice_cov
-    fit = min(1.0, base + bonus)
+    fit = (W_TITLE * title + W_CAREER * career + W_SKILL * skill
+           + W_SENIOR * senior + W_EVAL * eval_cov + W_NICE * nice_cov)
     return {
         "evidence_fit": fit,
         "title_relevance": title,
@@ -118,7 +123,7 @@ def _score_one(rec: dict, blob: F.Blob, job: jd.JobSpec, sem: float,
 
 def _semantic_array(records, blobs, job, semantic_raw) -> tuple[np.ndarray, str]:
     if semantic_raw is not None:
-        return _percentile_scale(np.asarray(semantic_raw, dtype=np.float32)), "embeddings"
+        return _semantic_scale(np.asarray(semantic_raw, dtype=np.float32)), "embeddings"
     sem = np.array([lexical_semantic_proxy(job, b) for b in blobs], dtype=np.float32)
     return sem, "lexical_fallback"
 
