@@ -2,13 +2,12 @@
 data/candidates.jsonl
 data/candidates.jsonl.gz
 data/*.json
-data/sample_candidates.json
+# ...but DO ship the tiny sample so the Docker sandbox has input to run on.
+!data/sample_candidates.json
 
-# Pre-computed embedding artifacts are large; provide via release/LFS or regenerate
-# with scripts/precompute_embeddings.py. Keep a .gitkeep so the dir exists.
-artifacts/*.npy
-artifacts/*.txt
-!artifacts/.gitkeep
+# Pre-computed embedding artifacts ARE committed (spec 10.3): the no-network Stage-3
+# reproduction of the ranking step depends on them. ~76 MB float16 + ids.
+# Regenerate with scripts/precompute_embeddings.py if needed.
 
 # Python
 __pycache__/

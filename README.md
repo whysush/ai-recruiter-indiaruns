@@ -136,6 +136,24 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
 *(The env var only sidesteps unrelated third-party pytest plugins that may be
 installed system-wide; it is not needed in a clean environment.)*
 
+### Sandbox / Docker (spec §10.5)
+The committed `artifacts/` (the precomputed embeddings) let the ranking step run
+with **numpy only**, so the sandbox image needs neither torch nor network:
+```bash
+docker build -t airecruiter .
+docker run --rm airecruiter          # ranks the bundled 50-candidate sample end-to-end (seconds)
+# or run on your own ≤100-candidate file:
+docker run --rm -v "$PWD/mysample.json:/app/mysample.json" airecruiter \
+    python scripts/run_submission.py --candidates mysample.json --cache artifacts/ --out out.csv
+```
+
+### Pre-computed artifacts are committed (spec §10.3)
+`artifacts/cand_embeddings.npy` (76 MB float16), `artifacts/cand_ids.txt`, and
+`artifacts/ideal_vec.npy` are committed so the **no-network Stage-3 reproduction**
+of the ranking step reproduces this exact submission without re-running the model.
+Regenerate them any time with `scripts/precompute_embeddings.py` (needs the model,
+one-time network to download it).
+
 ---
 
 ## Design decisions, honestly

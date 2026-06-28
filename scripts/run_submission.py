@@ -94,8 +94,13 @@ def main() -> int:
     anchor = compute_anchor(records)
     print(f"[rank] recency anchor = {anchor.isoformat()}", flush=True)
 
+    # Cap the requested top-K to what actually exists (small-sample / sandbox runs).
+    effective_k = min(args.top_k, len(records))
+    if effective_k < args.top_k:
+        print(f"[rank] only {len(records)} candidates available; producing {effective_k} rows "
+              f"(no ids fabricated).", flush=True)
     rows = score.score_pool_parallel(records, job, semantic_raw, anchor)
-    top = score.rank_pool(rows, top_k=args.top_k)
+    top = score.rank_pool(rows, top_k=effective_k)
     top = score.rescale_scores(top)
 
     # The parallel scorer drops the raw record to avoid pickling; re-attach it for
@@ -113,16 +118,13 @@ def main() -> int:
             w.writerow([r["candidate_id"], r["rank"], f"{r['score']:.4f}", r["reasoning"]])
 
     print(f"[rank] wrote {out_path} with {len(top)} rows in {time.time()-t0:.1f}s total", flush=True)
-    if len(top) < args.top_k:
-        print(f"[rank] WARNING: only {len(top)} candidates available (< {args.top_k}). "
-              f"No ids were fabricated.", flush=True)
 
     # Self-validate as the last step using the official validator (no fabrication,
     # correct format, non-increasing scores, tie-break). Fail loudly if violated.
-    # The official validator requires EXACTLY 100 rows, so only enforce it for the
-    # standard submission; a non-standard --top-k (debug) just skips the check.
-    if args.top_k != 100:
-        print(f"[rank] (skipping official validator: non-standard top_k={args.top_k})", flush=True)
+    # The official validator requires EXACTLY 100 rows, so only enforce it when we
+    # actually produced 100 (the full submission); small-sample runs skip it.
+    if len(top) != 100:
+        print(f"[rank] (skipping official validator: produced {len(top)} rows, not 100)", flush=True)
         return 0
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from validate_submission import validate_submission

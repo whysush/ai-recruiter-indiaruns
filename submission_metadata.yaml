@@ -17,7 +17,12 @@ team_members:
 # Code and reproducibility
 # ============================================================================
 github_repo: "https://github.com/TODO_USERNAME/airecruiter"
-sandbox_link: "https://huggingface.co/spaces/TODO_USERNAME/airecruiter"  # small-sample runner
+sandbox_link: "https://github.com/TODO_USERNAME/airecruiter#sandbox--docker-spec-105"
+# Per spec 10.5, a self-contained Docker recipe is provided in the repo README in
+# lieu of a hosted space: `docker build -t airecruiter . && docker run --rm airecruiter`
+# runs the real ranking step on a bundled <=100-candidate sample, CPU-only, offline,
+# in seconds. (You may instead host this image on HuggingFace Spaces/Streamlit if a
+# live URL is preferred — the Dockerfile builds and runs unmodified.)
 
 reproduce_command: "python scripts/run_submission.py --candidates data/candidates.jsonl --out submission.csv"
 # One-time precompute (exempt from the 5-min ranking budget):

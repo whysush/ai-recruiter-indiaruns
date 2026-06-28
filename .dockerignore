@@ -1,0 +1,12 @@
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+data/candidates.jsonl
+data/candidates.jsonl.gz
+submission.csv
+*.out
+tests/
