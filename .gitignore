@@ -21,3 +21,4 @@ venv/
 # Outputs
 submission.csv
 *.out
+data/*.docx
