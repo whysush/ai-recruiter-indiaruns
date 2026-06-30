@@ -96,7 +96,18 @@ airecruiter/
 
 ## How to reproduce
 
-### 0. Install
+### 0. Get the data + install
+The 100K candidate pool is **not committed** (487 MB; it's the released challenge
+dataset). Place it in `data/` before running:
+
+```bash
+# put the released file here:
+data/candidates.jsonl          # (or candidates.jsonl.gz — both are supported)
+```
+The precomputed embeddings in `artifacts/` are matched to candidates by
+`candidate_id`, so they line up with the released `candidates.jsonl` regardless of
+order. `data/job_description.txt` is already in the repo.
+
 The **ranking step needs only numpy**. The one-time precompute needs the embedding
 model (isolated in a virtualenv so it never pollutes your system Python):
 
