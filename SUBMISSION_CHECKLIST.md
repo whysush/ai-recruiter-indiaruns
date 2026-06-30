@@ -21,13 +21,13 @@ Replace every `TODO`:
 - `team_name`
 - `primary_contact.name`, `.phone`   (email is already set)
 - `team_members[].name` / `.email`   (one block per member)
-- `github_repo`  → your real `https://github.com/<user>/<repo>`
+- `github_repo`  → your real `https://github.com/whysush/ai-recruiter-indiaruns`
 - `sandbox_link` → either your hosted demo URL, or keep the GitHub `#sandbox` anchor
   (the Docker recipe in the README satisfies §10.5)
 
 ## 4. YOU — push the repo to GitHub
 ```bash
-git remote add origin https://github.com/<user>/<repo>.git
+git remote add origin https://github.com/whysush/ai-recruiter-indiaruns.git
 git push -u origin main      # or 'master'
 ```
 The repo already has clean, incremental history (8 commits) and includes the

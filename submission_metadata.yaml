@@ -22,8 +22,8 @@ team_members:
 # ============================================================================
 # Code and reproducibility
 # ============================================================================
-github_repo: "https://github.com/TODO_USERNAME/airecruiter"
-sandbox_link: "https://github.com/TODO_USERNAME/airecruiter#sandbox--docker-spec-105"
+github_repo: "https://github.com/whysush/ai-recruiter-indiaruns"
+sandbox_link: "https://github.com/whysush/ai-recruiter-indiaruns#sandbox--docker-spec-105"
 # Per spec 10.5, a self-contained Docker recipe is provided in the repo README in
 # lieu of a hosted space: `docker build -t airecruiter . && docker run --rm airecruiter`
 # runs the real ranking step on a bundled <=100-candidate sample, CPU-only, offline,

@@ -196,7 +196,8 @@ deliberately, and honestly stated.
 
 - GitHub repository: the full source (clean, incremental git history), README, tests,
   Dockerfile, requirements.txt / pyproject.toml, submission_metadata.yaml, and the committed
-  embedding artifacts so the no-network reproduction works.   [repo URL: TODO add after push]
+  embedding artifacts so the no-network reproduction works.
+  Repo: https://github.com/whysush/ai-recruiter-indiaruns
 - submission.csv — the top-100 ranking (rename to <participant_id>.csv before upload).
 - Sandbox: `docker build -t airecruiter . && docker run --rm airecruiter` runs the ranker on
   a bundled ≤100-candidate sample, CPU-only and offline, in seconds.
