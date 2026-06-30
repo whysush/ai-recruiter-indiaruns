@@ -1,208 +1,199 @@
-# AI Recruiter — Ranked Candidate Shortlisting
+# AI Recruiter — ranked candidate shortlisting
 
-A reproducible, **offline, CPU-only** system that ranks the top-100 candidates from
-a 100,000-profile pool for Redrob's *"Senior AI Engineer — Founding Team"* job
-description — the way a careful recruiter would, by reading the **evidence** in a
-profile rather than counting keywords.
+This is our entry for the Redrob *Intelligent Candidate Discovery & Ranking Challenge*.
+The job is to take a 100,000-profile pool and pull out the 100 people who actually fit
+the "Senior AI Engineer — Founding Team" role, ranked best-first. It runs offline on a
+CPU and the whole thing is deterministic, so the same input always gives the same CSV.
 
-> Built for the *Intelligent Candidate Discovery & Ranking Challenge*. The thing we
-> demo **is** the thing that produces the submission CSV — there is no second,
-> unused subsystem.
+One thing we cared about from the start: the demo *is* the submission pipeline. There's
+no separate impressive-looking app sitting next to a crude scorer. What produces
+`submission.csv` is exactly what we'd defend in an interview.
 
----
-
-## TL;DR — how it works
+## The short version of how it scores
 
 ```
-final_score = ( 0.40 · semantic_fit  +  0.60 · evidence_fit )   # fused fit, both in [0,1]
-              · behavioral_envelope                              # bounded multiplier [0.5, 1.2]
-              · location_shaper                                  # tiny [~0.96, 1.0], bona-fide hybrid-role logistics
-              − honeypot_penalty                                 # [0, 0.6]
+final_score = ( 0.40 * semantic_fit  +  0.60 * evidence_fit )   # the "fit", both 0..1
+              * behavioral_envelope                              # availability multiplier, 0.5..1.2
+              * location_shaper                                  # tiny nudge for the hybrid role
+              - honeypot_penalty                                 # 0..0.6, for dodgy profiles
 ```
 
-Each term is a named module, computed by pure arithmetic, so every line of the
-reasoning we hand a recruiter is faithful to a number the code actually produced.
+Every term is its own module and it's all plain arithmetic, which matters because the
+one-line reasoning we attach to each candidate is built from those same numbers — we
+never write a sentence the code can't back up.
 
-| Term | Module | What it captures |
-|---|---|---|
-| **semantic_fit** | `embeddings.py` + `score.py` | Cosine similarity between an *ideal-candidate* description (written from the JD) and each candidate's combined text, via a **local** sentence-embedding model. Sees *meaning*, so it rescues candidates who did the work without the buzzwords and resists pure keyword overlap. |
-| **evidence_fit** *(dominant)* | `features.py` | Title relevance, **duration-weighted** career relevance, skill evidence **validated by `skill_assessment_scores`**, and seniority alignment to the JD's 6–8 yr ideal. |
-| **behavioral_envelope** | `features.py` | Availability (recruiter response rate, notice period, recency), reliability (interview/offer rates), demand (recruiter saves/searches). A *nudge*, never a driver. |
-| **honeypot_penalty** | `honeypot.py` | A consistency audit that sinks impossible profiles, keyword stuffers, and "transitioning-into-ML" aspirational false-positives. |
+- **semantic_fit** (`embeddings.py`, `score.py`) — cosine similarity between an
+  "ideal candidate" paragraph we wrote from the JD and each candidate's own text, using a
+  local sentence-transformer. This is what lets us catch someone who clearly built the
+  right systems but never used the trendy words.
+- **evidence_fit** (`features.py`) — the heavier term. Title relevance, how much of the
+  career (weighted by duration) is genuinely relevant, and skill claims *checked against
+  the measured `skill_assessment_scores`*, plus a seniority check against the 6–8 year
+  sweet spot.
+- **behavioral_envelope** (`features.py`) — response rate, notice period, how recently
+  they logged in, interview/offer follow-through. It only nudges; it can't carry a weak
+  candidate.
+- **honeypot_penalty** (`honeypot.py`) — a consistency audit that drops impossible
+  profiles, keyword stuffers, and the "I'm transitioning into ML" crowd.
 
----
+## Why we didn't just match keywords
 
-## Why this beats keyword matching (a concrete before/after)
+We looked at the data before writing any scoring code, and two things basically decided
+the whole design.
 
-We inspected the real data first. Two findings shaped the whole design:
+First, the skills lists are noise. Every skill shows up on roughly 12% of the pool, so
+"has the most AI skills" is, almost literally, a random ranking. The JD even warns you
+about this — it says finding the candidates with the most AI keywords is a trap they
+built into the dataset on purpose. So we lean on the stuff that's hard to fake: titles,
+what people actually wrote about their roles, their summaries, and the assessment scores
+(those are measured on the platform, not self-reported).
 
-1. **Skills are near-uniform noise** — every skill appears on ~12% of the pool, so
-   *skill presence carries almost no signal*. A ranker that rewards "most AI skills
-   listed" is ranking noise. The JD says this explicitly: *"The right answer is not
-   find candidates whose skills section contains the most AI keywords. That's a trap
-   we've explicitly built into the dataset."*
-2. **The discriminative signal lives in titles, career-history descriptions,
-   summaries, and `skill_assessment_scores`** (measured, not self-claimed).
+Here's the example we keep coming back to. `CAND_0000001` is a backend/data engineer
+whose summary says things like *"building competence on the ML side… interested in
+transitioning toward AI/ML,"* and the skills list is packed with NLP, Fine-tuning LLMs,
+Speech Recognition, TTS. A keyword/BM25 ranker loves this profile and floats it near the
+top. Our system drops it to **rank 57,835 / 100,000** — the career relevance comes out at
+0.11 because the actual role descriptions are data pipelines, and the honeypot audit adds
+a 0.30 penalty for the aspirational summary and the CV/speech skills (which the JD calls
+out as a negative for this role).
 
-**Before (keyword/BM25):** `CAND_0000001` — a Backend/Data Engineer whose summary
-reads *"I'm building competence on the ML side… interested in transitioning toward
-AI/ML"* and whose skill list is stuffed with `NLP (advanced)`, `Fine-tuning LLMs
-(advanced)`, `Speech Recognition`, `TTS`. Token-dense → keyword search ranks it
-near the top.
+The flip side works too: a profile that plainly says *"built a recommendation and search
+ranking system with embeddings and FAISS at a product company"* scores well on both
+semantic and evidence fit even if it never says "RAG". In our full run the top 100 came
+out as entirely real AI/ML titles, and **none** of them tripped the honeypot audit (the
+challenge disqualifies you above a 10% honeypot rate in the top 100).
 
-**After (this system):** it lands at **rank 57,835 / 100,000** — nowhere near the
-shortlist — because
-- `career_relevance` is **0.11**: its role descriptions are data pipelines, not ML;
-- the **honeypot audit** applies a **0.30 penalty**, flagging the *aspirational
-  summary* and *CV/speech expertise without NLP/IR* (an explicit JD negative).
-
-Concretely, in our full run the **top-100 are entirely genuine AI/ML titles**
-(Recommendation/Applied-ML/NLP/Search/AI engineers, Data Scientists) and **zero**
-profiles in the top-100 trip the honeypot audit — a 0% honeypot rate against the
-challenge's 10% disqualification threshold.
-
-Meanwhile a *plain-language* candidate whose description says *"built a
-recommendation and search ranking system with embeddings and FAISS at a product
-company"* scores high on **both** semantic and evidence fit — even if they never
-wrote the word "RAG".
-
----
-
-## Repository layout
+## What's in here
 
 ```
 airecruiter/
   airecruiter/
-    dataio.py       # load json / jsonl / .gz, validate ids, build candidate text
-    jd.py           # decompose the ONE target JD -> requirements + ideal-profile text
-    embeddings.py   # local model wrapper + precomputed embedding cache (numpy at rank time)
-    features.py     # evidence features + bounded behavioral envelope
-    honeypot.py     # consistency / honeypot audit -> penalty + human-readable flags
-    score.py        # combine terms, rank, tie-break, rescale
-    reasoning.py    # faithful 1-2 sentence justifications from real numbers
-    fairness.py     # blocked-feature constants + guard used by the test suite
+    dataio.py       # load json / jsonl / .gz, check ids, build the text blob per candidate
+    jd.py           # turn the JD into requirements + the ideal-profile text
+    embeddings.py   # local model wrapper + the cached embeddings (rank time is numpy only)
+    features.py     # the evidence features + the behavioral envelope
+    honeypot.py     # the consistency / honeypot audit -> penalty + readable flags
+    score.py        # put it together, rank, break ties, rescale
+    reasoning.py    # the 1-2 sentence justification, built from real numbers
+    fairness.py     # the blocked-feature list + the guard the tests use
   scripts/
-    precompute_embeddings.py   # ONE-TIME: embed the pool, cache to artifacts/ (may use network/GPU-free, >5min OK)
-    run_submission.py          # TIMED ranking step: numpy-only, no network, writes submission.csv
-    validate_submission.py     # the official challenge validator (unmodified)
-  tests/            # fairness, honeypot behavior, output format
-  data/             # JD text + dataset (dataset gitignored)
-  artifacts/        # cached embeddings (gitignored; regenerate with precompute)
-  requirements.txt
-  submission_metadata.yaml
+    precompute_embeddings.py   # one-time: embed the pool, cache to artifacts/
+    run_submission.py          # the timed ranking step (numpy only) -> submission.csv
+    validate_submission.py     # the official validator, copied in as-is
+  tests/            # fairness, honeypot behaviour, output format
+  data/             # JD text + schema (the big candidates file is NOT committed)
+  artifacts/        # the cached embeddings (committed, ~76 MB)
 ```
 
----
+## Running it
 
-## How to reproduce
-
-### 0. Get the data + install
-The 100K candidate pool is **not committed** (487 MB; it's the released challenge
-dataset). Place it in `data/` before running:
+You need the candidate pool first — we don't commit it because it's ~487 MB and it's the
+released dataset anyway. Drop it in `data/`:
 
 ```bash
-# put the released file here:
-data/candidates.jsonl          # (or candidates.jsonl.gz — both are supported)
+data/candidates.jsonl          # candidates.jsonl.gz works too
 ```
-The precomputed embeddings in `artifacts/` are matched to candidates by
-`candidate_id`, so they line up with the released `candidates.jsonl` regardless of
-order. `data/job_description.txt` is already in the repo.
 
-The **ranking step needs only numpy**. The one-time precompute needs the embedding
-model (isolated in a virtualenv so it never pollutes your system Python):
+The embeddings in `artifacts/` are looked up by `candidate_id`, so they match the released
+file no matter what order it's in. The JD text is already in the repo.
+
+The ranking step only needs numpy. The one-time embedding step needs the model, and that
+one we keep in a virtualenv so it doesn't touch your system Python:
 
 ```bash
 python3 -m virtualenv .venv && . .venv/bin/activate
 pip install -r requirements.txt          # numpy + sentence-transformers (CPU torch)
 ```
 
-### 1. One-time pre-computation (declared; may exceed 5 min, downloads model once)
-```bash
-python scripts/precompute_embeddings.py \
-    --candidates data/candidates.jsonl \
-    --cache artifacts/
-```
-Produces `artifacts/cand_embeddings.npy` (float16, ~77 MB), `artifacts/cand_ids.txt`,
-and `artifacts/ideal_vec.npy`. This is the **declared pre-computed artifact**.
+**One-time precompute** (downloads the model once, can take longer than 5 min — that's
+fine, the spec exempts precompute):
 
-### 2. The timed ranking step (≤5 min, CPU, 16 GB, **no network**)
 ```bash
-python scripts/run_submission.py \
-    --candidates data/candidates.jsonl \
-    --out submission.csv
-```
-If `artifacts/` is missing, the system **degrades gracefully** to a deterministic
-lexical semantic proxy and still produces a valid CSV — it never requires the model
-at rank time.
-
-### 3. Validate
-```bash
-python scripts/validate_submission.py submission.csv   # -> "Submission is valid."
+python scripts/precompute_embeddings.py --candidates data/candidates.jsonl --cache artifacts/
 ```
 
-### Tests
+That writes `cand_embeddings.npy`, `cand_ids.txt` and `ideal_vec.npy` into `artifacts/`.
+Since those are already committed, you can skip this unless you want to regenerate them.
+
+**The actual ranking step** — this is the part that has to stay under 5 minutes, CPU only,
+no network:
+
+```bash
+python scripts/run_submission.py --candidates data/candidates.jsonl --out submission.csv
+```
+
+It re-runs the official validator at the end and prints "Submission is valid." If the
+`artifacts/` cache happens to be missing, it falls back to a deterministic lexical proxy
+so it still produces a valid CSV — it never needs the model at rank time.
+
+**Validate on its own** if you want:
+
+```bash
+python scripts/validate_submission.py submission.csv
+```
+
+**Tests:**
+
 ```bash
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -q
 ```
-*(The env var only sidesteps unrelated third-party pytest plugins that may be
-installed system-wide; it is not needed in a clean environment.)*
 
-### Sandbox / Docker (spec §10.5)
-The committed `artifacts/` (the precomputed embeddings) let the ranking step run
-with **numpy only**, so the sandbox image needs neither torch nor network:
+(The env var is only there because this machine has some unrelated ROS pytest plugins that
+crash collection. You don't need it in a clean environment.)
+
+**Docker sandbox** (this is our answer to the §10.5 sandbox requirement). Because the
+embeddings are committed, the image is numpy-only — no torch, no network:
+
 ```bash
 docker build -t airecruiter .
-docker run --rm airecruiter          # ranks the bundled 50-candidate sample end-to-end (seconds)
-# or run on your own ≤100-candidate file:
+docker run --rm airecruiter            # ranks the bundled 50-candidate sample in seconds
+# or point it at your own <=100-candidate file:
 docker run --rm -v "$PWD/mysample.json:/app/mysample.json" airecruiter \
     python scripts/run_submission.py --candidates mysample.json --cache artifacts/ --out out.csv
 ```
 
-### Pre-computed artifacts are committed (spec §10.3)
-`artifacts/cand_embeddings.npy` (76 MB float16), `artifacts/cand_ids.txt`, and
-`artifacts/ideal_vec.npy` are committed so the **no-network Stage-3 reproduction**
-of the ranking step reproduces this exact submission without re-running the model.
-Regenerate them any time with `scripts/precompute_embeddings.py` (needs the model,
-one-time network to download it).
+## A few design calls worth explaining
 
----
+**Why a weighted sum and not RRF.** We wanted the actual magnitude of the evidence to
+matter, not just the rank order. An NLP assessment of 82/100 should push a candidate up,
+not just nudge their position. Evidence is weighted above semantic on purpose: raw
+embedding similarity still rewards keyword density, which is the exact thing we're trying
+not to fall for, so evidence does the grounding and the embedding is the booster on top.
 
-## Design decisions, honestly
+**Why precompute the embeddings.** Embedding 100K profiles is the only genuinely slow
+part. Do it once, cache it as a numpy array, and the ranking step that produces the CSV is
+trivially inside the 5-minute budget and doesn't need torch or a network connection at all.
 
-- **Weighted sum, not pure RRF.** Our components are calibrated to `[0,1]`, and we
-  want the *magnitude* of measured evidence (e.g. an NLP assessment of 82/100) to
-  move the score, not only its rank. Evidence is weighted above semantic because raw
-  embedding similarity still rewards keyword density — the exact failure mode we
-  must avoid — so evidence acts as the grounding and semantics as the booster.
-- **Embeddings are precomputed and cached.** The only slow step is embedding 100K
-  profiles; we do it once and ship a numpy artifact, so the reproduced ranking step
-  is trivially within the 5-minute CPU budget and needs no torch and no network.
-- **Recency is anchored to `max(last_active_date)`** in the pool (the data is
-  synthetic/stale), so "inactive" penalties are measured against the dataset's own
-  clock, not the wall clock.
-- **Fairness by design.** `anonymized_name`, education `tier`/`grade`/`institution`,
-  gender, age, graduation year, and nationality are **never** ranking signals; a
-  test (`tests/test_fairness.py`) asserts the scored modules don't reference them.
-  City / relocation-willingness *is* used as a small shaper because the role is an
-  explicitly hybrid Pune/Noida position — a bona-fide occupational requirement, not
-  a demographic proxy.
+**The "today" date is the pool's own clock.** The data is synthetic and a bit stale, so we
+anchor recency to the latest `last_active_date` in the pool (2026-05-27) instead of the
+real wall clock — otherwise everyone looks inactive.
 
-### What is and isn't implemented (no vaporware)
-**Implemented:** local-embedding semantic fit with disk cache; assessment-validated
-skill evidence; duration-weighted career relevance; bounded behavioral envelope;
-a 9-rule honeypot/consistency audit with human-readable flags; faithful,
-rank-consistent reasoning; the official format validator; fairness/honeypot/format
-tests. **Not implemented (and not claimed):** no LLM calls anywhere in the scored
-path; no vector database (a single batch dot-product over 100K rows is instant); no
-learning-to-rank training (no labels are provided); no online/A-B components.
+**Fairness.** We never score on name, education tier/grade/institution, gender, age,
+graduation year, or nationality — and there's a test (`test_fairness.py`) that actually
+greps the scoring modules to make sure none of those sneak in. We do use city /
+willingness-to-relocate as a small factor, but only because this is an explicitly hybrid
+Pune/Noida role, so it's a real job requirement rather than a proxy for anything.
 
----
+## What we built vs. what we didn't (being honest)
 
-## Runtime (measured, 12-core CPU box, system Python, numpy only)
-- **Ranking step end-to-end: ~61 s** for the full 100,000-candidate pool
-  (≈4 s load + ≈55 s parallel structured scoring + embedding cosine) — comfortably
-  inside the 5-minute budget, no network, no torch.
-- One-time embedding precompute: ~20 min on CPU for 100K (declared, cached to a
-  77 MB float16 artifact; exempt from the 5-minute ranking budget per the spec).
-- The structured scorer is split across CPU cores via a deterministic fork-based
-  pool; the result is bit-identical to single-process scoring (regression-tested).
+Built: the local-embedding semantic term with a disk cache, assessment-validated skill
+evidence, duration-weighted career relevance, the bounded behavioral multiplier, a 9-rule
+honeypot/consistency audit with readable flags, reasoning that's generated from each
+candidate's real numbers, and the fairness/honeypot/format tests.
+
+Didn't build, and aren't claiming: there's no LLM anywhere in the scored path, no vector
+database (one dot product over 100K rows is instant, so an index would be overkill), no
+learning-to-rank model (there are no labels to train on), and nothing online/A-B.
+
+## Timings we actually measured
+
+Run on a 12-core CPU box, system Python, numpy only:
+
+- The ranking step is about **61 seconds** for the full 100K — roughly 4s to load, the
+  rest is the parallel scoring plus the embedding cosine. Well under the 5-minute limit,
+  no network, no torch.
+- The one-time embedding precompute is around 20 minutes for 100K on CPU. That's cached to
+  the ~76 MB float16 artifact and, again, the spec doesn't count it against the ranking
+  budget.
+- The scorer is spread across cores with a fork-based pool, and we have a test that checks
+  the parallel result is bit-for-bit identical to running it single-process.
