@@ -5,13 +5,19 @@ team_name: "xyzcodes"
 
 primary_contact:
   name: "Garvit Sahni"
-  email: "sudhanshyelishetty@gmail.com"
-  phone: "+91-XXXXXXXXXX"           # TODO
+  email: "sahnigarvit2005@gmail.com"
+  phone: "+91-9816844820"
 
 team_members:
   - name: "Garvit Sahni"
-    email: "sudhanshyelishetty@gmail.com"
+    email: "sahnigarvit2005@gmail.com"
     role: "Team Lead"
+  - name: "Sushanth Yelishetty"
+    email: "why.sush@gmail.com"
+    role: "Engineer"
+  - name: "Anupam Sharma"
+    email: "anupam_2301ce05@iitp.ac.in"
+    role: "Engineer"
 
 # ============================================================================
 # Code and reproducibility
