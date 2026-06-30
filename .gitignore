@@ -21,3 +21,6 @@ venv/
 submission.csv
 *.out
 data/*.docx
+
+# Generated submission upload files (regenerable from run_submission.py)
+/*.csv
