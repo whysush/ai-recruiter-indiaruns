@@ -1,17 +1,17 @@
 # Redrob Hackathon — Submission Metadata
 # Mirror of the portal metadata. Fill in the team-identity fields before submitting.
 
-team_name: "TODO-your-team-name"
+team_name: "xyzcodes"
 
 primary_contact:
-  name: "TODO Full Name"
+  name: "Garvit Sahni"
   email: "sudhanshyelishetty@gmail.com"
-  phone: "+91-XXXXXXXXXX"
+  phone: "+91-XXXXXXXXXX"           # TODO
 
 team_members:
-  - name: "TODO Member 1"
+  - name: "Garvit Sahni"
     email: "sudhanshyelishetty@gmail.com"
-    role: "ML Engineer"
+    role: "Team Lead"
 
 # ============================================================================
 # Code and reproducibility
